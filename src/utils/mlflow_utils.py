@@ -1,3 +1,5 @@
+import tempfile
+
 import mlflow
 import logging
 from pathlib import Path
@@ -122,9 +124,6 @@ def log_figure(figure_or_path: Union[plt.Figure, str, Path], artifact_path: Opti
     try:
         if isinstance(figure_or_path, plt.Figure):
             # Если передан объект фигуры, сохраняем его во временный файл
-            import tempfile
-            from pathlib import Path
-
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
                 tmp_path = Path(tmp.name)
                 figure_or_path.savefig(tmp_path, dpi=300, bbox_inches='tight')

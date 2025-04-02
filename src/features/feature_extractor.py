@@ -1,8 +1,7 @@
-# src/features/feature_extractor.py
 import pandas as pd
 import numpy as np
 import logging
-from typing import Optional, Union, List
+from typing import Optional, Union
 from pathlib import Path
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -101,14 +100,7 @@ class FeatureExtractor(FeatureExtractorBase):
         # Снижение размерности для текстовых эмбеддингов
         if text_emb_cols and len(text_emb_cols) > self.n_components:
             text_embeddings = features_df[text_emb_cols].values
-
-            # Обучаем модель снижения размерности, если еще не обучена
-            if self.text_dim_reducer is None:
-                self.text_dim_reducer = self._create_dim_reducer()
-                self.text_dim_reducer.fit(text_embeddings)
-
-            # Применяем снижение размерности
-            reduced_text_embeddings = self.text_dim_reducer.transform(text_embeddings)
+            reduced_text_embeddings = self._reduce_dimensions_for_embeddings(text_embeddings, 'text')
 
             # Удаляем исходные колонки и добавляем новые
             result_df = result_df.drop(columns=text_emb_cols)
@@ -121,14 +113,8 @@ class FeatureExtractor(FeatureExtractorBase):
         # Снижение размерности для эмбеддингов цитируемого текста
         if quoted_text_emb_cols and len(quoted_text_emb_cols) > self.n_components:
             quoted_text_embeddings = features_df[quoted_text_emb_cols].values
-
-            # Обучаем модель снижения размерности, если еще не обучена
-            if self.quoted_text_dim_reducer is None:
-                self.quoted_text_dim_reducer = self._create_dim_reducer()
-                self.quoted_text_dim_reducer.fit(quoted_text_embeddings)
-
-            # Применяем снижение размерности
-            reduced_quoted_text_embeddings = self.quoted_text_dim_reducer.transform(quoted_text_embeddings)
+            reduced_quoted_text_embeddings = self._reduce_dimensions_for_embeddings(quoted_text_embeddings,
+                                                                                    'quoted_text')
 
             # Удаляем исходные колонки и добавляем новые
             result_df = result_df.drop(columns=quoted_text_emb_cols)
@@ -141,14 +127,7 @@ class FeatureExtractor(FeatureExtractorBase):
         # Снижение размерности для эмбеддингов изображений
         if image_emb_cols and len(image_emb_cols) > self.n_components:
             image_embeddings = features_df[image_emb_cols].values
-
-            # Обучаем модель снижения размерности, если еще не обучена
-            if self.image_dim_reducer is None:
-                self.image_dim_reducer = self._create_dim_reducer()
-                self.image_dim_reducer.fit(image_embeddings)
-
-            # Применяем снижение размерности
-            reduced_image_embeddings = self.image_dim_reducer.transform(image_embeddings)
+            reduced_image_embeddings = self._reduce_dimensions_for_embeddings(image_embeddings, 'image')
 
             # Удаляем исходные колонки и добавляем новые
             result_df = result_df.drop(columns=image_emb_cols)
@@ -159,6 +138,29 @@ class FeatureExtractor(FeatureExtractorBase):
                 f"Размерность эмбеддингов изображений сокращена с {len(image_emb_cols)} до {reduced_image_embeddings.shape[1]}")
 
         return result_df
+
+
+    def _reduce_dimensions_for_embeddings(self, embeddings: np.ndarray, embedding_type: str) -> np.ndarray:
+        """
+        Снижение размерности для определенного типа эмбеддингов.
+
+        Args:
+            embeddings: Матрица эмбеддингов
+            embedding_type: Тип эмбеддингов ('text', 'quoted_text', 'image')
+
+        Returns:
+            np.ndarray: Матрица с сокращенной размерностью
+        """
+        # Получаем соответствующий редьюсер для типа эмбеддингов
+        dim_reducer_attr = f"{embedding_type}_dim_reducer"
+
+        # Создаем редьюсер, если его еще нет
+        if getattr(self, dim_reducer_attr, None) is None:
+            setattr(self, dim_reducer_attr, self._create_dim_reducer())
+            getattr(self, dim_reducer_attr).fit(embeddings)
+
+        # Применяем снижение размерности
+        return getattr(self, dim_reducer_attr).transform(embeddings)
 
     def fit(self, data: pd.DataFrame) -> 'FeatureExtractor':
         """

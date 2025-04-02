@@ -5,9 +5,9 @@ import time
 import mlflow
 import joblib
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Dict, List, Optional, Union
 from flaml import AutoML
-from sklearn.model_selection import StratifiedKFold
+from src.utils.gpu_utils import get_gpu_settings_for_model
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score, confusion_matrix
@@ -22,7 +22,7 @@ class ModelTrainer:
     def __init__(
             self,
             time_budget: int = 3600,  # 1 час
-            estimator_list: List[str] = ['lgbm', 'xgboost', 'catboost', 'rf', 'extra_tree', 'mlp'],
+            estimator_list: Optional[List[str]] = None,
             metric: str = 'average_precision',
             task: str = 'classification',
             n_folds: int = 5,
@@ -48,7 +48,12 @@ class ModelTrainer:
             logger: Объект логгера
         """
         self.time_budget = time_budget
-        self.estimator_list = estimator_list
+
+        if estimator_list is None:
+            self.estimator_list = ['lgbm', 'xgboost', 'catboost', 'rf', 'extra_tree', 'mlp']
+        else:
+            self.estimator_list = estimator_list
+
         self.metric = metric
         self.task = task
         self.n_folds = n_folds
@@ -87,15 +92,10 @@ class ModelTrainer:
 
         # Настройки для разных моделей
         gpu_settings = {}
-
-        if 'lgbm' in self.estimator_list:
-            gpu_settings['lgbm'] = {'device': 'gpu'}
-
-        if 'xgboost' in self.estimator_list:
-            gpu_settings['xgboost'] = {'tree_method': 'gpu_hist', 'gpu_id': 0}
-
-        if 'catboost' in self.estimator_list:
-            gpu_settings['catboost'] = {'task_type': 'GPU', 'devices': '0'}
+        for model_type in self.estimator_list:
+            settings = get_gpu_settings_for_model(model_type)
+            if settings:
+                gpu_settings[model_type] = settings
 
         return gpu_settings
 

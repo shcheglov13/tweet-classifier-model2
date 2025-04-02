@@ -1,8 +1,6 @@
-# src/feature_selection/boruta.py
 import pandas as pd
-import numpy as np
 import logging
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional
 from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -158,14 +156,14 @@ class BorutaSelector:
             tentative_mask = self.boruta.support_weak_
             self.feature_ranks.loc[tentative_mask, 'Decision'] = 'Tentative'
 
-            self.selected_features = list(self.feature_ranks[self.feature_ranks['Support']]['Feature'])
-            self.rejected_features = list(self.feature_ranks[~self.feature_ranks['Support']]['Feature'])
+            self.selected_features = list(self.feature_ranks[(self.feature_ranks['Support']) | self.boruta.support_weak_]['Feature'])
+            self.rejected_features = list(self.feature_ranks[(~self.feature_ranks['Support']) & (~self.boruta.support_weak_)]['Feature'])
             self.tentative_features = list(self.feature_ranks[self.boruta.support_weak_]['Feature'])
 
             # Добавляем все эмбеддинги к отобранным признакам
             self.selected_features.extend(embedding_columns)
 
-            self.logger.info(f"Отобрано {len(self.selected_features)} признаков")
+            self.logger.info(f"Отобрано {len(self.selected_features)} признаков (включая Tentative)")
             self.logger.info(f"Отклонено {len(self.rejected_features)} признаков")
             self.logger.info(f"Нерешенные признаки: {len(self.tentative_features)}")
 
@@ -212,7 +210,7 @@ class BorutaSelector:
             y: Серия с целевой переменной
 
         Returns:
-            pd.DataFrame: Датафрейм с отобранными признаками
+            pd. DataFrame: Датафрейм с отобранными признаками
         """
         return self.fit(X, y).transform(X)
 

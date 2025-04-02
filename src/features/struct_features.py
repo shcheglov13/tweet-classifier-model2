@@ -38,7 +38,7 @@ class StructuralFeatureExtractor(FeatureExtractorBase):
         Returns:
             self: Возвращает экземпляр класса
         """
-        # Для структурных признаков не требуется обучение
+        
         return self
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -70,6 +70,7 @@ class StructuralFeatureExtractor(FeatureExtractorBase):
                     (features_df['has_main_text'] | features_df['has_quoted_text']) & ~features_df['has_image']).astype(
             int)
         features_df['media_type_image'] = features_df['has_image'].astype(int)
+        features_df['media_type_video'] = data['image_url'].apply(self._is_video_url).astype(int)
 
         # Соотношение длин текстов
         text_lengths = data['text'].fillna('').apply(len)
@@ -101,3 +102,24 @@ class StructuralFeatureExtractor(FeatureExtractorBase):
 
         self.logger.info(f"Извлечено {features_df.shape[1]} структурных признаков")
         return features_df
+
+    def _is_video_url(self, url: str) -> bool:
+        """
+        Проверка, является ли URL ссылкой на видео.
+
+        Args:
+            url: URL для проверки
+
+        Returns:
+            bool: True, если URL указывает на видео, иначе False
+        """
+        if url is None or pd.isna(url) or not url:
+            return False
+
+        video_patterns = [
+            'ext_tw_video_thumb',
+            'amplify_video_thumb',
+            'tweet_video_thumb'
+        ]
+
+        return any(pattern in url for pattern in video_patterns)

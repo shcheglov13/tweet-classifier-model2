@@ -134,6 +134,57 @@ class TextFeatureExtractor(FeatureExtractorBase):
             'emoji_count': emoji_count
         }
 
+    def _calculate_perplexity(self, text: str) -> float:
+        """
+        Расчет перплексии текста.
+
+        Args:
+            text: Текст для анализа
+
+        Returns:
+            float: Значение перплексии
+        """
+        if text is None or pd.isna(text) or len(text) == 0:
+            return 0.0
+
+        try:
+            # Загружаем токенизатор, если еще не загружен
+            self._load_bert_model()
+
+            # Токенизируем текст
+            tokens = self.tokenizer.tokenize(text)
+
+            if len(tokens) < 2:
+                return 0
+
+            # Получаем вероятности для токенов
+            encoded_input = self.tokenizer(
+                text,
+                return_tensors='pt',
+                truncation=True,
+                max_length=128
+            ).to(self.device)
+
+            with torch.no_grad():
+                outputs = self.model(**encoded_input)
+
+            # Получаем логиты для предсказания следующего токена
+            logits = outputs.logits[:, :-1, :]  # отбрасываем последний токен
+
+            # Получаем целевые токены (следующие токены)
+            target_ids = encoded_input['input_ids'][:, 1:]  # отбрасываем первый токен
+
+            # Рассчитываем кросс-энтропию
+            loss_fct = torch.nn.CrossEntropyLoss()
+            loss = loss_fct(logits.reshape(-1, logits.size(-1)), target_ids.reshape(-1))
+
+            # Перплексия = exp(loss)
+            perplexity = torch.exp(loss).item()
+            return perplexity
+        except Exception as e:
+            self.logger.warning(f"Ошибка при расчете перплексии: {e}")
+            return 0.0
+
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Извлечение текстовых признаков.
@@ -199,6 +250,9 @@ class TextFeatureExtractor(FeatureExtractorBase):
         features_df['excessive_punctuation_count'] = data['text'].apply(
             lambda x: len(re.findall(r'[!?\.]{2,}', str(x))) if not pd.isna(x) else 0
         )
+
+        # Перплексия текста
+        features_df['perplexity_score'] = data['text'].apply(self._calculate_perplexity)
 
         # Извлечение BERT эмбеддингов
         text_embeddings = self._extract_bert_embeddings(data['text'].tolist())

@@ -19,7 +19,8 @@ from src.evaluation.metrics import ClassificationMetrics
 from src.evaluation.visualization import ModelVisualizer
 from src.utils.config import Config
 from src.utils.logger import setup_logger
-from src.utils.mlflow_utils import setup_mlflow, log_config, log_model_metrics
+from src.utils.mlflow_utils import setup_mlflow, log_config, log_model_metrics, log_confusion_matrix, \
+    save_experiment_summary
 from src.utils.gpu_utils import check_gpu_availability, get_gpu_info
 
 
@@ -56,11 +57,11 @@ class Pipeline:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Настройка логирования
-        log_config = self.config.get('logging_config')
+        logging_config = self.config.get('logging_config')
         self.logger = setup_logger(
             log_file=self.output_dir / 'pipeline.log',
             level=self.config.get('logging_level', 'INFO'),
-            config_file=log_config if log_config else None
+            config_file=logging_config if logging_config else None
         )
 
         # Проверка доступности GPU
@@ -138,6 +139,16 @@ class Pipeline:
                 )
                 features_no_missing = missing_handler.fit_transform(features)
 
+                # Анализируем пропущенные значения
+                missing_stats = missing_handler.get_missing_stats(features)
+                if not missing_stats.empty:
+                    # Логируем статистику по пропускам
+                    mlflow.log_param("columns_with_missing", len(missing_stats[missing_stats['missing_count'] > 0]))
+                    # Сохраняем статистику
+                    missing_stats_path = self.output_dir / 'missing_stats.csv'
+                    missing_stats.to_csv(missing_stats_path, index=False)
+                    mlflow.log_artifact(str(missing_stats_path))
+
                 # 3.2 Масштабирование
                 scaler = FeatureScaler(
                     scaler_type=self.config.get('scaler_type', 'standard'),
@@ -146,11 +157,19 @@ class Pipeline:
                 )
                 features_scaled = scaler.fit_transform(features_no_missing)
 
+                # Анализируем диапазоны признаков до и после масштабирования
+                feature_ranges = scaler.get_feature_ranges()
+                if not feature_ranges.empty:
+                    # Сохраняем статистику масштабирования
+                    feature_ranges_path = self.output_dir / 'feature_ranges.csv'
+                    feature_ranges.to_csv(feature_ranges_path, index=False)
+                    mlflow.log_artifact(str(feature_ranges_path))
+
                 # 3.3 Бинаризация целевой переменной
                 target_binarizer = TargetBinarizer(
                     threshold=self.config.get('target_threshold', 100),
                     threshold_strategy=self.config.get('threshold_strategy', 'fixed'),
-                    output_dir=self.output_dir / 'target_analysis',
+                    output_dir=str(self.output_dir / 'target_analysis'),
                     logger=self.logger
                 )
                 target_column = self.config.get('target_column', 'tx_count')
@@ -159,6 +178,12 @@ class Pipeline:
 
                 mlflow.log_param("target_threshold", target_binarizer.get_threshold())
                 mlflow.log_param("positive_class_ratio", y_binary.mean())
+
+                # Логируем статистику целевой переменной
+                target_stats = target_binarizer.get_stats()
+                for key, value in target_stats.items():
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        mlflow.log_metric(f"target_{key}", value)
 
                 # Шаг 4: Корреляционный анализ признаков
                 self.logger.info("Шаг 4: Корреляционный анализ признаков")
@@ -223,7 +248,7 @@ class Pipeline:
 
                 # Рассчитываем расширенные метрики
                 metrics_calculator = ClassificationMetrics(logger=self.logger)
-                all_metrics = metrics_calculator.get_all_metrics(y_test, y_pred, y_pred_proba)
+                all_metrics = metrics_calculator.get_all_metrics(y_test.values, y_pred, y_pred_proba)
 
                 # Сохраняем отчет с метриками
                 metrics_report = metrics_calculator.format_metrics_for_report(all_metrics['basic_metrics'])
@@ -233,6 +258,18 @@ class Pipeline:
 
                 # Логируем метрики в MLflow
                 log_model_metrics(all_metrics['basic_metrics'])
+
+                # Логируем важность признаков в MLflow
+                feature_importance = model_trainer.get_feature_importance()
+                if not feature_importance.empty:
+                    from src.utils.mlflow_utils import log_feature_importance
+                    log_feature_importance(feature_importance)
+
+                # Логируем матрицу ошибок в MLflow
+                log_confusion_matrix(all_metrics['confusion_matrix'], ['Класс 0', 'Класс 1'])
+
+                # Сохраняем сводку эксперимента
+                save_experiment_summary(self.output_dir)
 
                 # Шаг 9: Визуализация и интерпретация
                 self.logger.info("Шаг 9: Визуализация и интерпретация результатов")
@@ -248,14 +285,13 @@ class Pipeline:
                 visualizer.plot_confusion_matrix(y_test, y_pred)
 
                 # Визуализация с оптимальным порогом
-                y_pred_optimal = (y_pred_proba >= best_threshold).astype(int)
+                y_pred_optimal = np.array(y_pred_proba >= best_threshold, dtype=int)
                 visualizer.plot_confusion_matrix(
                     y_test, y_pred_optimal,
                     filename='confusion_matrix_optimal_threshold.png'
                 )
 
                 # Важность признаков и SHAP
-                feature_importance = model_trainer.get_feature_importance()
                 if not feature_importance.empty:
                     visualizer.plot_feature_importance(feature_importance)
 
