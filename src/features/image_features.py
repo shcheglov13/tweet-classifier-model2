@@ -78,12 +78,12 @@ class ImageFeatureExtractor(FeatureExtractorBase):
             return None
 
     @cache_feature(feature_type='clip_embeddings')
-    def _extract_clip_embeddings(self, images: List[Optional[Image.Image]]) -> np.ndarray:
+    def _extract_clip_embeddings(self, image_urls: List[str]) -> np.ndarray:
         """
         Извлечение эмбеддингов из изображений с помощью CLIP.
 
         Args:
-            images: Список изображений
+            image_urls: Список URL изображений
 
         Returns:
             np.ndarray: Матрица эмбеддингов
@@ -96,12 +96,15 @@ class ImageFeatureExtractor(FeatureExtractorBase):
         empty_embedding = np.zeros(self.model.config.projection_dim)
 
         with ProgressTracker(
-                total=len(images),
+                total=len(image_urls),
                 description="Извлечение CLIP эмбеддингов",
                 logger=self.logger
         ) as progress:
-            for i in range(0, len(images), self.batch_size):
-                batch_images = images[i:i + self.batch_size]
+            for i in range(0, len(image_urls), self.batch_size):
+                batch_urls = image_urls[i:i + self.batch_size]
+
+                # Загружаем изображения (с использованием кеша)
+                batch_images = [self._download_image(url) for url in batch_urls]
 
                 # Пропускаем батчи без изображений
                 if all(img is None for img in batch_images):
@@ -183,13 +186,9 @@ class ImageFeatureExtractor(FeatureExtractorBase):
         # Флаг наличия изображения
         features_df['has_image'] = data['image_url'].notna().astype(int)
 
-        # Загружаем изображения
-        self.logger.info("Загрузка изображений")
-        images = [self._download_image(url) for url in data['image_url']]
-
         # Извлечение CLIP эмбеддингов
         self.logger.info("Извлечение CLIP эмбеддингов для изображений")
-        clip_embeddings = self._extract_clip_embeddings(images)
+        clip_embeddings = self._extract_clip_embeddings(data['image_url'].tolist())
 
         emb_columns = [f'image_emb_{i}' for i in range(clip_embeddings.shape[1])]
         emb_df = pd.DataFrame(clip_embeddings, index=data.index, columns=emb_columns)
