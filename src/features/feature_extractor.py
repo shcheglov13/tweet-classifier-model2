@@ -10,6 +10,7 @@ from src.features.feature_base import FeatureExtractorBase
 from src.features.text_features import TextFeatureExtractor
 from src.features.image_features import ImageFeatureExtractor
 from src.features.struct_features import StructuralFeatureExtractor
+from src.utils.progress_tracker import ProgressTracker
 
 
 class FeatureExtractor(FeatureExtractorBase):
@@ -97,48 +98,67 @@ class FeatureExtractor(FeatureExtractorBase):
         quoted_text_emb_cols = [col for col in features_df.columns if col.startswith('quoted_text_emb_')]
         image_emb_cols = [col for col in features_df.columns if col.startswith('image_emb_')]
 
-        # Снижение размерности для текстовых эмбеддингов
+        # Подсчитываем общее количество наборов эмбеддингов для обработки
+        emb_sets_count = 0
         if text_emb_cols and len(text_emb_cols) > self.n_components:
-            text_embeddings = features_df[text_emb_cols].values
-            reduced_text_embeddings = self._reduce_dimensions_for_embeddings(text_embeddings, 'text')
-
-            # Удаляем исходные колонки и добавляем новые
-            result_df = result_df.drop(columns=text_emb_cols)
-            for i in range(reduced_text_embeddings.shape[1]):
-                result_df[f'text_emb_reduced_{i}'] = reduced_text_embeddings[:, i]
-
-            self.logger.info(
-                f"Размерность текстовых эмбеддингов сокращена с {len(text_emb_cols)} до {reduced_text_embeddings.shape[1]}")
-
-        # Снижение размерности для эмбеддингов цитируемого текста
+            emb_sets_count += 1
         if quoted_text_emb_cols and len(quoted_text_emb_cols) > self.n_components:
-            quoted_text_embeddings = features_df[quoted_text_emb_cols].values
-            reduced_quoted_text_embeddings = self._reduce_dimensions_for_embeddings(quoted_text_embeddings,
-                                                                                    'quoted_text')
-
-            # Удаляем исходные колонки и добавляем новые
-            result_df = result_df.drop(columns=quoted_text_emb_cols)
-            for i in range(reduced_quoted_text_embeddings.shape[1]):
-                result_df[f'quoted_text_emb_reduced_{i}'] = reduced_quoted_text_embeddings[:, i]
-
-            self.logger.info(
-                f"Размерность эмбеддингов цитируемого текста сокращена с {len(quoted_text_emb_cols)} до {reduced_quoted_text_embeddings.shape[1]}")
-
-        # Снижение размерности для эмбеддингов изображений
+            emb_sets_count += 1
         if image_emb_cols and len(image_emb_cols) > self.n_components:
-            image_embeddings = features_df[image_emb_cols].values
-            reduced_image_embeddings = self._reduce_dimensions_for_embeddings(image_embeddings, 'image')
+            emb_sets_count += 1
 
-            # Удаляем исходные колонки и добавляем новые
-            result_df = result_df.drop(columns=image_emb_cols)
-            for i in range(reduced_image_embeddings.shape[1]):
-                result_df[f'image_emb_reduced_{i}'] = reduced_image_embeddings[:, i]
+        with ProgressTracker(
+                total=emb_sets_count,
+                description="Снижение размерности эмбеддингов",
+                logger=self.logger
+        ) as progress:
+            # Снижение размерности для текстовых эмбеддингов
+            if text_emb_cols and len(text_emb_cols) > self.n_components:
+                progress.set_description("Обработка текстовых эмбеддингов")
+                text_embeddings = features_df[text_emb_cols].values
+                reduced_text_embeddings = self._reduce_dimensions_for_embeddings(text_embeddings, 'text')
 
-            self.logger.info(
-                f"Размерность эмбеддингов изображений сокращена с {len(image_emb_cols)} до {reduced_image_embeddings.shape[1]}")
+                # Удаляем исходные колонки и добавляем новые
+                result_df = result_df.drop(columns=text_emb_cols)
+                for i in range(reduced_text_embeddings.shape[1]):
+                    result_df[f'text_emb_reduced_{i}'] = reduced_text_embeddings[:, i]
+
+                self.logger.info(
+                    f"Размерность текстовых эмбеддингов сокращена с {len(text_emb_cols)} до {reduced_text_embeddings.shape[1]}")
+                progress.update()
+
+            # Снижение размерности для эмбеддингов цитируемого текста
+            if quoted_text_emb_cols and len(quoted_text_emb_cols) > self.n_components:
+                progress.set_description("Обработка эмбеддингов цитируемого текста")
+                quoted_text_embeddings = features_df[quoted_text_emb_cols].values
+                reduced_quoted_text_embeddings = self._reduce_dimensions_for_embeddings(quoted_text_embeddings,
+                                                                                        'quoted_text')
+
+                # Удаляем исходные колонки и добавляем новые
+                result_df = result_df.drop(columns=quoted_text_emb_cols)
+                for i in range(reduced_quoted_text_embeddings.shape[1]):
+                    result_df[f'quoted_text_emb_reduced_{i}'] = reduced_quoted_text_embeddings[:, i]
+
+                self.logger.info(
+                    f"Размерность эмбеддингов цитируемого текста сокращена с {len(quoted_text_emb_cols)} до {reduced_quoted_text_embeddings.shape[1]}")
+                progress.update()
+
+            # Снижение размерности для эмбеддингов изображений
+            if image_emb_cols and len(image_emb_cols) > self.n_components:
+                progress.set_description("Обработка эмбеддингов изображений")
+                image_embeddings = features_df[image_emb_cols].values
+                reduced_image_embeddings = self._reduce_dimensions_for_embeddings(image_embeddings, 'image')
+
+                # Удаляем исходные колонки и добавляем новые
+                result_df = result_df.drop(columns=image_emb_cols)
+                for i in range(reduced_image_embeddings.shape[1]):
+                    result_df[f'image_emb_reduced_{i}'] = reduced_image_embeddings[:, i]
+
+                self.logger.info(
+                    f"Размерность эмбеддингов изображений сокращена с {len(image_emb_cols)} до {reduced_image_embeddings.shape[1]}")
+                progress.update()
 
         return result_df
-
 
     def _reduce_dimensions_for_embeddings(self, embeddings: np.ndarray, embedding_type: str) -> np.ndarray:
         """
@@ -156,10 +176,12 @@ class FeatureExtractor(FeatureExtractorBase):
 
         # Создаем редьюсер, если его еще нет
         if getattr(self, dim_reducer_attr, None) is None:
+            self.logger.info(f"Создание модели понижения размерности для {embedding_type}")
             setattr(self, dim_reducer_attr, self._create_dim_reducer())
             getattr(self, dim_reducer_attr).fit(embeddings)
 
         # Применяем снижение размерности
+        self.logger.info(f"Применение понижения размерности для {embedding_type}")
         return getattr(self, dim_reducer_attr).transform(embeddings)
 
     def fit(self, data: pd.DataFrame) -> 'FeatureExtractor':

@@ -6,11 +6,12 @@ import requests
 from PIL import Image
 import io
 import logging
-from typing import List, Dict, Optional, Union
+from typing import List, Optional, Union
 from pathlib import Path
 
 from src.features.feature_base import FeatureExtractorBase
 from src.utils.caching import cache_feature, cache_image
+from src.utils.progress_tracker import ProgressTracker
 
 
 class ImageFeatureExtractor(FeatureExtractorBase):
@@ -49,7 +50,7 @@ class ImageFeatureExtractor(FeatureExtractorBase):
         """Загрузка модели CLIP и процессора."""
         if self.processor is None or self.model is None:
             self.logger.info(f"Загрузка модели CLIP: {self.clip_model_name}")
-            self.processor = CLIPProcessor.from_pretrained(self.clip_model_name)
+            self.processor = CLIPProcessor.from_pretrained(self.clip_model_name, use_fast=True)
             self.model = CLIPModel.from_pretrained(self.clip_model_name)
             self.model.to(self.device)
             self.model.eval()
@@ -94,46 +95,60 @@ class ImageFeatureExtractor(FeatureExtractorBase):
         # Создаем "пустой" эмбеддинг для отсутствующих изображений
         empty_embedding = np.zeros(self.model.config.projection_dim)
 
-        for i in range(0, len(images), self.batch_size):
-            batch_images = images[i:i + self.batch_size]
+        with ProgressTracker(
+                total=len(images),
+                description="Извлечение CLIP эмбеддингов",
+                logger=self.logger
+        ) as progress:
+            for i in range(0, len(images), self.batch_size):
+                batch_images = images[i:i + self.batch_size]
 
-            # Пропускаем батчи без изображений
-            if all(img is None for img in batch_images):
-                embeddings.extend([empty_embedding] * len(batch_images))
-                continue
+                # Пропускаем батчи без изображений
+                if all(img is None for img in batch_images):
+                    embeddings.extend([empty_embedding] * len(batch_images))
+                    progress.update(len(batch_images))
+                    continue
 
-            # Заменяем отсутствующие изображения на пустые изображения для батча
-            valid_images = []
-            valid_indices = []
+                # Заменяем отсутствующие изображения на пустые изображения для батча
+                valid_images = []
+                valid_indices = []
 
-            for j, img in enumerate(batch_images):
-                if img is not None:
-                    valid_images.append(img)
-                    valid_indices.append(j)
+                for j, img in enumerate(batch_images):
+                    if img is not None:
+                        valid_images.append(img)
+                        valid_indices.append(j)
 
-            if not valid_images:
-                embeddings.extend([empty_embedding] * len(batch_images))
-                continue
+                if not valid_images:
+                    embeddings.extend([empty_embedding] * len(batch_images))
+                    progress.update(len(batch_images))
+                    continue
 
-            # Обрабатываем и получаем эмбеддинги для валидных изображений
-            try:
-                inputs = self.processor(images=valid_images, return_tensors="pt").to(self.device)
+                # Обрабатываем и получаем эмбеддинги для валидных изображений
+                try:
+                    inputs = self.processor(images=valid_images, return_tensors="pt").to(self.device)
 
-                with torch.no_grad():
-                    outputs = self.model.get_image_features(**inputs)
+                    with torch.no_grad():
+                        outputs = self.model.get_image_features(**inputs)
 
-                batch_embeddings = outputs.cpu().numpy()
+                    batch_embeddings = outputs.cpu().numpy()
 
-                # Распределяем эмбеддинги по исходным индексам
-                batch_result = [empty_embedding] * len(batch_images)
-                for embed_idx, orig_idx in enumerate(valid_indices):
-                    batch_result[orig_idx] = batch_embeddings[embed_idx]
+                    # Распределяем эмбеддинги по исходным индексам
+                    batch_result = [empty_embedding] * len(batch_images)
+                    for embed_idx, orig_idx in enumerate(valid_indices):
+                        batch_result[orig_idx] = batch_embeddings[embed_idx]
 
-                embeddings.extend(batch_result)
+                    embeddings.extend(batch_result)
 
-            except Exception as e:
-                self.logger.error(f"Ошибка при извлечении CLIP эмбеддингов: {e}")
-                embeddings.extend([empty_embedding] * len(batch_images))
+                except Exception as e:
+                    self.logger.error(f"Ошибка при извлечении CLIP эмбеддингов: {e}")
+                    embeddings.extend([empty_embedding] * len(batch_images))
+
+                # Обновляем прогресс
+                progress.update(len(batch_images))
+
+                # Добавляем информацию о статистике обработки
+                valid_count = len(valid_images)
+                progress.set_postfix(valid_images=valid_count, invalid_images=len(batch_images) - valid_count)
 
         return np.vstack(embeddings)
 

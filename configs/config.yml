@@ -1,0 +1,49 @@
+# Основные параметры
+data_path: "./data/tweet_dataset.json"
+output_dir: "./outputs"
+cache_dir: "./cache"
+
+# Параметры логирования
+logging_level: "INFO"
+logging_config: null
+
+# Параметры MLflow
+mlflow_tracking_uri: "./mlruns"
+
+# Параметры GPU
+use_gpu: true
+
+# Параметры для извлечения признаков
+dimension_reduction: "pca"  # "pca" или "tsne"
+n_components: 50
+batch_size: 32
+scale_embeddings: false
+
+# Параметры предобработки
+missing_strategy: "zeros"  # "zeros" или "keep_nan"
+scaler_type: "standard"    # "standard", "minmax", "robust", "maxabs"
+target_threshold: 100
+threshold_strategy: "fixed"  # "fixed", "percentile", "auto"
+target_column: "tx_count"
+
+# Параметры отбора признаков
+correlation_threshold: 0.95
+boruta_n_estimators: 100
+boruta_max_iter: 100
+
+# Параметры разделения данных
+test_size: 0.2
+random_state: 42
+
+# Параметры обучения модели
+time_budget: 3600  # 1 час в секундах
+estimator_list:
+  - "lgbm"
+  - "xgboost"
+  - "catboost"
+  - "rf"
+  - "extra_tree"
+  - "mlp"
+metric: "average_precision"
+n_folds: 5
+ensemble_type: "stack"

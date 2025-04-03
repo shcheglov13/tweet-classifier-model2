@@ -16,3 +16,5 @@ emoji>=1.6.0
 pyyaml>=6.0.0
 requests>=2.26.0
 pillow>=8.3.0
+tqdm>=4.65.0
+torchvision>=0.14.0

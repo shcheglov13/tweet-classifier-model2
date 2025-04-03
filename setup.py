@@ -23,6 +23,8 @@ setup(
         "pyyaml>=6.0.0",
         "requests>=2.26.0",
         "pillow>=8.3.0",
+        "tqdm>=4.64.0",
+        "torchvision>=0.14.0"
     ],
     python_requires=">=3.8",
 )

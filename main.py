@@ -11,11 +11,11 @@ def parse_arguments():
     Парсинг аргументов командной строки.
 
     Returns:
-        argparse.Namespace: Объект с аргументами
+        argparse. Namespace: Объект с аргументами
     """
     parser = argparse.ArgumentParser(description='Обучение модели классификации твитов')
 
-    parser.add_argument('--config', type=str, required=True,
+    parser.add_argument('--config', type=str, default='configs/config.yml',
                         help='Путь к файлу конфигурации')
 
     parser.add_argument('--output-dir', type=str, default=None,

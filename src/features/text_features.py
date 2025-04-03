@@ -10,6 +10,7 @@ from pathlib import Path
 
 from src.features.feature_base import FeatureExtractorBase
 from src.utils.caching import cache_feature
+from src.utils.progress_tracker import ProgressTracker
 
 
 class TextFeatureExtractor(FeatureExtractorBase):
@@ -81,26 +82,34 @@ class TextFeatureExtractor(FeatureExtractorBase):
 
         embeddings = []
 
-        for i in range(0, len(texts), self.batch_size):
-            batch_texts = texts[i:i + self.batch_size]
+        with ProgressTracker(
+                total=len(texts),
+                description="Извлечение BERT эмбеддингов",
+                logger=self.logger
+        ) as progress:
+            for i in range(0, len(texts), self.batch_size):
+                batch_texts = texts[i:i + self.batch_size]
 
-            # Заменяем None на пустую строку
-            batch_texts = [text if text is not None else "" for text in batch_texts]
+                # Заменяем None на пустую строку
+                batch_texts = [text if text is not None else "" for text in batch_texts]
 
-            encoded_input = self.tokenizer(
-                batch_texts,
-                padding=True,
-                truncation=True,
-                max_length=128,
-                return_tensors='pt'
-            ).to(self.device)
+                encoded_input = self.tokenizer(
+                    batch_texts,
+                    padding=True,
+                    truncation=True,
+                    max_length=128,
+                    return_tensors='pt'
+                ).to(self.device)
 
-            with torch.no_grad():
-                model_output = self.model(**encoded_input)
+                with torch.no_grad():
+                    model_output = self.model(**encoded_input)
 
-            # Используем [CLS] токен в качестве представления всего предложения
-            batch_embeddings = model_output.last_hidden_state[:, 0, :].cpu().numpy()
-            embeddings.append(batch_embeddings)
+                # Используем [CLS] токен в качестве представления всего предложения
+                batch_embeddings = model_output.last_hidden_state[:, 0, :].cpu().numpy()
+                embeddings.append(batch_embeddings)
+
+                # Обновляем прогресс
+                progress.update(len(batch_texts))
 
         return np.vstack(embeddings) if embeddings else np.array([])
 
@@ -134,57 +143,6 @@ class TextFeatureExtractor(FeatureExtractorBase):
             'emoji_count': emoji_count
         }
 
-    def _calculate_perplexity(self, text: str) -> float:
-        """
-        Расчет перплексии текста.
-
-        Args:
-            text: Текст для анализа
-
-        Returns:
-            float: Значение перплексии
-        """
-        if text is None or pd.isna(text) or len(text) == 0:
-            return 0.0
-
-        try:
-            # Загружаем токенизатор, если еще не загружен
-            self._load_bert_model()
-
-            # Токенизируем текст
-            tokens = self.tokenizer.tokenize(text)
-
-            if len(tokens) < 2:
-                return 0
-
-            # Получаем вероятности для токенов
-            encoded_input = self.tokenizer(
-                text,
-                return_tensors='pt',
-                truncation=True,
-                max_length=128
-            ).to(self.device)
-
-            with torch.no_grad():
-                outputs = self.model(**encoded_input)
-
-            # Получаем логиты для предсказания следующего токена
-            logits = outputs.logits[:, :-1, :]  # отбрасываем последний токен
-
-            # Получаем целевые токены (следующие токены)
-            target_ids = encoded_input['input_ids'][:, 1:]  # отбрасываем первый токен
-
-            # Рассчитываем кросс-энтропию
-            loss_fct = torch.nn.CrossEntropyLoss()
-            loss = loss_fct(logits.reshape(-1, logits.size(-1)), target_ids.reshape(-1))
-
-            # Перплексия = exp(loss)
-            perplexity = torch.exp(loss).item()
-            return perplexity
-        except Exception as e:
-            self.logger.warning(f"Ошибка при расчете перплексии: {e}")
-            return 0.0
-
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Извлечение текстовых признаков.
@@ -197,73 +155,63 @@ class TextFeatureExtractor(FeatureExtractorBase):
         """
         self.logger.info("Извлечение текстовых признаков")
 
-        # Создаем пустой датафрейм для признаков
-        features_df = pd.DataFrame(index=data.index)
+        features = {}
 
         # Длина текста
-        features_df['text_length'] = data['text'].apply(
-            lambda x: len(x) if not pd.isna(x) else 0
-        )
-        features_df['quoted_text_length'] = data['quoted_text'].apply(
-            lambda x: len(x) if not pd.isna(x) else 0
-        )
-        features_df['combined_text_length'] = features_df['text_length'] + features_df['quoted_text_length']
+        features['text_length'] = data['text'].apply(lambda x: len(x) if pd.notna(x) else 0)
+        features['quoted_text_length'] = data['quoted_text'].apply(lambda x: len(x) if pd.notna(x) else 0)
+        features['combined_text_length'] = features['text_length'] + features['quoted_text_length']
 
         # Количество слов
-        features_df['text_word_count'] = data['text'].apply(
-            lambda x: len(str(x).split()) if not pd.isna(x) else 0
-        )
-        features_df['quoted_text_word_count'] = data['quoted_text'].apply(
-            lambda x: len(str(x).split()) if not pd.isna(x) else 0
-        )
-        features_df['combined_word_count'] = features_df['text_word_count'] + features_df['quoted_text_word_count']
+        features['text_word_count'] = data['text'].apply(lambda x: len(str(x).split()) if pd.notna(x) else 0)
+        features['quoted_text_word_count'] = data['quoted_text'].apply(
+            lambda x: len(str(x).split()) if pd.notna(x) else 0)
+        features['combined_word_count'] = features['text_word_count'] + features['quoted_text_word_count']
 
         # Средняя длина слов
-        features_df['avg_word_length_text'] = data['text'].apply(
-            lambda x: np.mean([len(word) for word in str(x).split()]) if not pd.isna(x) and str(x).split() else 0
+        features['avg_word_length_text'] = data['text'].apply(
+            lambda x: np.mean([len(word) for word in str(x).split()]) if pd.notna(x) and str(x).split() else 0
         )
-        features_df['avg_word_length_quoted'] = data['quoted_text'].apply(
-            lambda x: np.mean([len(word) for word in str(x).split()]) if not pd.isna(x) and str(x).split() else 0
+        features['avg_word_length_quoted'] = data['quoted_text'].apply(
+            lambda x: np.mean([len(word) for word in str(x).split()]) if pd.notna(x) and str(x).split() else 0
         )
 
         # Специальные элементы
         special_elements = data['text'].apply(self._count_special_elements)
         for key in ['hashtag_count', 'mention_count', 'url_count', 'emoji_count']:
-            features_df[key] = special_elements.apply(lambda x: x[key])
+            features[key] = special_elements.apply(lambda x: x[key])
 
         # Плотность специальных элементов
         for element in ['hashtag', 'mention', 'url', 'emoji']:
             count_col = f'{element}_count'
             density_col = f'{element}_density'
-            features_df[density_col] = features_df[count_col] / features_df['text_length'].replace(0, 1)
+            # Заменяем 0 на 1 для предотвращения деления на ноль
+            features[density_col] = features[count_col] / features['text_length'].replace(0, 1)
 
         # Доля заглавных букв
-        features_df['uppercase_ratio'] = data['text'].apply(
-            lambda x: sum(1 for c in str(x) if c.isupper()) / max(len(str(x).replace(" ", "")), 1) if not pd.isna(
-                x) else 0
+        features['uppercase_ratio'] = data['text'].apply(
+            lambda x: sum(1 for c in str(x) if c.isupper()) / max(len(str(x).replace(" ", "")), 1) if pd.notna(x) else 0
         )
 
         # Удлиненные слова и избыточная пунктуация
-        features_df['word_elongation_count'] = data['text'].apply(
-            lambda x: len(re.findall(r'\b\w*(\w)\1{2,}\w*\b', str(x))) if not pd.isna(x) else 0
+        features['word_elongation_count'] = data['text'].apply(
+            lambda x: len(re.findall(r'\b\w*(\w)\1{2,}\w*\b', str(x))) if pd.notna(x) else 0
         )
-        features_df['excessive_punctuation_count'] = data['text'].apply(
-            lambda x: len(re.findall(r'[!?\.]{2,}', str(x))) if not pd.isna(x) else 0
+        features['excessive_punctuation_count'] = data['text'].apply(
+            lambda x: len(re.findall(r'[!?\.]{2,}', str(x))) if pd.notna(x) else 0
         )
-
-        # Перплексия текста
-        features_df['perplexity_score'] = data['text'].apply(self._calculate_perplexity)
 
         # Извлечение BERT эмбеддингов
         text_embeddings = self._extract_bert_embeddings(data['text'].tolist())
         quoted_text_embeddings = self._extract_bert_embeddings(data['quoted_text'].tolist())
 
-        # Добавляем эмбеддинги в датафрейм
+        # Добавляем эмбеддинги в словарь
         for i in range(text_embeddings.shape[1]):
-            features_df[f'text_emb_{i}'] = text_embeddings[:, i]
+            features[f'text_emb_{i}'] = text_embeddings[:, i]
 
         for i in range(quoted_text_embeddings.shape[1]):
-            features_df[f'quoted_text_emb_{i}'] = quoted_text_embeddings[:, i]
+            features[f'quoted_text_emb_{i}'] = quoted_text_embeddings[:, i]
 
+        features_df = pd.DataFrame(features, index=data.index)
         self.logger.info(f"Извлечено {features_df.shape[1]} текстовых признаков")
         return features_df
