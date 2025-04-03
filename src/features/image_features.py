@@ -191,9 +191,11 @@ class ImageFeatureExtractor(FeatureExtractorBase):
         self.logger.info("Извлечение CLIP эмбеддингов для изображений")
         clip_embeddings = self._extract_clip_embeddings(images)
 
-        # Добавляем эмбеддинги в датафрейм
-        for i in range(clip_embeddings.shape[1]):
-            features_df[f'image_emb_{i}'] = clip_embeddings[:, i]
+        emb_columns = [f'image_emb_{i}' for i in range(clip_embeddings.shape[1])]
+        emb_df = pd.DataFrame(clip_embeddings, index=data.index, columns=emb_columns)
+
+        # Объединяем все данные в один DataFrame
+        features_df = pd.concat([features_df, emb_df], axis=1)
 
         self.logger.info(f"Извлечено {features_df.shape[1]} визуальных признаков")
         return features_df

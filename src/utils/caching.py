@@ -132,8 +132,6 @@ def cache_image(func: Callable):
         # Если кеш существует, загружаем его
         if cache_file.exists():
             try:
-                logger = getattr(self, 'logger', logging.getLogger(__name__))
-                logger.info(f"Загрузка изображения из кеша: {cache_file}")
                 with open(cache_file, 'rb') as f:
                     return pickle.load(f)
             except Exception as e:

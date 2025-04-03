@@ -118,10 +118,16 @@ class FeatureExtractor(FeatureExtractorBase):
                 text_embeddings = features_df[text_emb_cols].values
                 reduced_text_embeddings = self._reduce_dimensions_for_embeddings(text_embeddings, 'text')
 
-                # Удаляем исходные колонки и добавляем новые
+                # Создаем DataFrame с новыми колонками
+                text_emb_reduced_df = pd.DataFrame(
+                    data=reduced_text_embeddings,
+                    index=features_df.index,
+                    columns=[f'text_emb_reduced_{i}' for i in range(reduced_text_embeddings.shape[1])]
+                )
+
+                # Удаляем исходные колонки и добавляем новые одним обращением
                 result_df = result_df.drop(columns=text_emb_cols)
-                for i in range(reduced_text_embeddings.shape[1]):
-                    result_df[f'text_emb_reduced_{i}'] = reduced_text_embeddings[:, i]
+                result_df = pd.concat([result_df, text_emb_reduced_df], axis=1)
 
                 self.logger.info(
                     f"Размерность текстовых эмбеддингов сокращена с {len(text_emb_cols)} до {reduced_text_embeddings.shape[1]}")
@@ -134,10 +140,16 @@ class FeatureExtractor(FeatureExtractorBase):
                 reduced_quoted_text_embeddings = self._reduce_dimensions_for_embeddings(quoted_text_embeddings,
                                                                                         'quoted_text')
 
-                # Удаляем исходные колонки и добавляем новые
+                # Создаем DataFrame с новыми колонками
+                quoted_text_emb_reduced_df = pd.DataFrame(
+                    data=reduced_quoted_text_embeddings,
+                    index=features_df.index,
+                    columns=[f'quoted_text_emb_reduced_{i}' for i in range(reduced_quoted_text_embeddings.shape[1])]
+                )
+
+                # Удаляем исходные колонки и добавляем новые одним обращением
                 result_df = result_df.drop(columns=quoted_text_emb_cols)
-                for i in range(reduced_quoted_text_embeddings.shape[1]):
-                    result_df[f'quoted_text_emb_reduced_{i}'] = reduced_quoted_text_embeddings[:, i]
+                result_df = pd.concat([result_df, quoted_text_emb_reduced_df], axis=1)
 
                 self.logger.info(
                     f"Размерность эмбеддингов цитируемого текста сокращена с {len(quoted_text_emb_cols)} до {reduced_quoted_text_embeddings.shape[1]}")
@@ -149,10 +161,16 @@ class FeatureExtractor(FeatureExtractorBase):
                 image_embeddings = features_df[image_emb_cols].values
                 reduced_image_embeddings = self._reduce_dimensions_for_embeddings(image_embeddings, 'image')
 
-                # Удаляем исходные колонки и добавляем новые
+                # Создаем DataFrame с новыми колонками
+                image_emb_reduced_df = pd.DataFrame(
+                    data=reduced_image_embeddings,
+                    index=features_df.index,
+                    columns=[f'image_emb_reduced_{i}' for i in range(reduced_image_embeddings.shape[1])]
+                )
+
+                # Удаляем исходные колонки и добавляем новые одним обращением
                 result_df = result_df.drop(columns=image_emb_cols)
-                for i in range(reduced_image_embeddings.shape[1]):
-                    result_df[f'image_emb_reduced_{i}'] = reduced_image_embeddings[:, i]
+                result_df = pd.concat([result_df, image_emb_reduced_df], axis=1)
 
                 self.logger.info(
                     f"Размерность эмбеддингов изображений сокращена с {len(image_emb_cols)} до {reduced_image_embeddings.shape[1]}")
