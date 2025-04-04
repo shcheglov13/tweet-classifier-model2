@@ -50,7 +50,7 @@ class ModelTrainer:
         self.time_budget = time_budget
 
         if estimator_list is None:
-            self.estimator_list = ['lgbm', 'xgboost', 'catboost', 'rf', 'extra_tree', 'mlp']
+            self.estimator_list = ['lgbm', 'xgboost', 'catboost', 'rf', 'extra_tree']
         else:
             self.estimator_list = estimator_list
 
@@ -70,7 +70,7 @@ class ModelTrainer:
         self.metrics = {}
 
         # Валидируем список моделей
-        valid_estimators = ['lgbm', 'xgboost', 'catboost', 'rf', 'extra_tree', 'mlp']
+        valid_estimators = ['lgbm', 'xgboost', 'catboost', 'rf', 'extra_tree']
         for estimator in self.estimator_list:
             if estimator not in valid_estimators:
                 self.logger.warning(f"Неизвестный тип модели: {estimator}. Будет пропущен.")
@@ -140,6 +140,8 @@ class ModelTrainer:
         gpu_settings = self._prepare_gpu_settings()
         class_weights = self._calculate_class_weights(y)
 
+        sample_weight = np.array([class_weights[cls] for cls in y])
+
         # Логирование процесса обучения
         mlflow.log_param("estimator_list", self.estimator_list)
         mlflow.log_param("metric", self.metric)
@@ -150,22 +152,21 @@ class ModelTrainer:
         # Засекаем время
         start_time = time.time()
 
-        # Обучение модели
         self.automl.fit(
-            X=X.values,
-            y=y.values,
+            X_train=X,
+            y_train=y,
             task=self.task,
-            time_budget=self.time_budget,
+            # time_budget=self.time_budget,
+            time_budget=900,
             metric=self.metric,
             estimator_list=self.estimator_list,
             ensemble=True,
-            ensemble_type=self.ensemble_type,
             eval_method='cv',
             n_splits=self.n_folds,
             custom_hp=gpu_settings,
-            verbose=1,
+            verbose=3,
             seed=self.random_state,
-            class_weight=class_weights
+            sample_weight=sample_weight
         )
 
         # Время обучения
@@ -182,17 +183,20 @@ class ModelTrainer:
         mlflow.log_metric("best_score", 1 - self.automl.best_loss)
         mlflow.log_metric("training_time", training_time)
 
-        # Извлекаем важность признаков, если она доступна
+        # Извлекаем важность признаков
         try:
-            if hasattr(self.automl.model.estimator, 'feature_importances_'):
+            if hasattr(self.automl, 'feature_importances_') and hasattr(self.automl, 'feature_names_in_'):
                 self.feature_importance = pd.DataFrame({
-                    'Feature': X.columns,
-                    'Importance': self.automl.model.estimator.feature_importances_
+                    'Feature': self.automl.feature_names_in_,
+                    'Importance': self.automl.feature_importances_
                 }).sort_values('Importance', ascending=False)
 
-                mlflow.log_param("top_features", self.feature_importance['Feature'].head(10).tolist())
+                # Логируем топ-30 признаков в MLflow
+                mlflow.log_param("top_features", self.feature_importance['Feature'].head(30).tolist())
+            else:
+                self.logger.warning("У модели отсутствует атрибут важности признаков")
         except Exception as e:
-            self.logger.warning(f"Не удалось извлечь важность признаков: {e}")
+            self.logger.warning(f"Не удалось извлечь важность признаков: {str(e)}")
 
         return self
 
@@ -214,7 +218,7 @@ class ModelTrainer:
         self.logger.info("Оценка модели на тестовых данных")
 
         # Получаем предсказания
-        y_pred_proba = self.automl.predict_proba(X.values)[:, 1]
+        y_pred_proba = self.automl.predict_proba(X)[:, 1]
         y_pred = (y_pred_proba >= 0.5).astype(int)
 
         # Рассчитываем метрики

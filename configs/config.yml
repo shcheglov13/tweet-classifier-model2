@@ -43,7 +43,6 @@ estimator_list:
   - "catboost"
   - "rf"
   - "extra_tree"
-  - "mlp"
-metric: "average_precision"
+metric: "ap"
 n_folds: 5
 ensemble_type: "stack"

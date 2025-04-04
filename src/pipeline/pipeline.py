@@ -220,7 +220,7 @@ class Pipeline:
                 X_train, X_test, y_train, y_test = data_splitter.train_test_split(X_selected, y_binary)
 
                 mlflow.log_param("train_size", len(X_train))
-                mlflow.log_param("test_size", len(X_test))
+                mlflow.log_param("test_sample_size", len(X_test))
 
                 # Шаг 7: Обучение модели
                 self.logger.info("Шаг 7: Обучение модели")
