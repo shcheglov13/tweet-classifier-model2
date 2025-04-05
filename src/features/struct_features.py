@@ -57,7 +57,7 @@ class StructuralFeatureExtractor(FeatureExtractorBase):
         features_df = pd.DataFrame(index=data.index)
 
         # One-hot кодирование типа твита
-        tweet_types = pd.get_dummies(data['tweet_type'], prefix='tweet_type')
+        tweet_types = pd.get_dummies(data['tweet_type'], prefix='tweet_type').astype(int)
         features_df = pd.concat([features_df, tweet_types], axis=1)
 
         # Флаги наличия контента
@@ -69,8 +69,8 @@ class StructuralFeatureExtractor(FeatureExtractorBase):
         features_df['media_type_only_text'] = (
                     (features_df['has_main_text'] | features_df['has_quoted_text']) & ~features_df['has_image']).astype(
             int)
-        features_df['media_type_image'] = features_df['has_image'].astype(int)
         features_df['media_type_video'] = data['image_url'].apply(self._is_video_url).astype(int)
+        features_df['media_type_image'] = ((features_df['has_image'] == 1) & (features_df['media_type_video'] == 0)).astype(int)
 
         # Соотношение длин текстов
         text_lengths = data['text'].fillna('').apply(len)

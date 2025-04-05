@@ -82,6 +82,9 @@ class TextFeatureExtractor(FeatureExtractorBase):
 
         embeddings = []
 
+        # Создаем "пустой" эмбеддинг для отсутствующих текстов
+        empty_embedding = np.zeros(self.model.config.hidden_size)
+
         with ProgressTracker(
                 total=len(texts),
                 description="Извлечение BERT эмбеддингов",
@@ -90,11 +93,21 @@ class TextFeatureExtractor(FeatureExtractorBase):
             for i in range(0, len(texts), self.batch_size):
                 batch_texts = texts[i:i + self.batch_size]
 
-                # Заменяем None на пустую строку
-                batch_texts = [text if text is not None else "" for text in batch_texts]
+                # Проверяем, какие тексты пустые или None
+                is_empty = [text is None or text == "" or pd.isna(text) for text in batch_texts]
+
+                # Если все тексты в батче пустые
+                if all(is_empty):
+                    embeddings.extend([empty_embedding] * len(batch_texts))
+                    progress.update(len(batch_texts))
+                    continue
+
+                # Заменяем None и пустые строки на пробел (минимальный непустой текст)
+                processed_texts = [text if not (text is None or text == "" or pd.isna(text)) else " " for text in
+                                   batch_texts]
 
                 encoded_input = self.tokenizer(
-                    batch_texts,
+                    processed_texts,
                     padding=True,
                     truncation=True,
                     max_length=128,
@@ -106,6 +119,12 @@ class TextFeatureExtractor(FeatureExtractorBase):
 
                 # Используем [CLS] токен в качестве представления всего предложения
                 batch_embeddings = model_output.last_hidden_state[:, 0, :].cpu().numpy()
+
+                # Заменяем эмбеддинги для пустых текстов на нулевые
+                for j, empty in enumerate(is_empty):
+                    if empty:
+                        batch_embeddings[j] = empty_embedding
+
                 embeddings.append(batch_embeddings)
 
                 # Обновляем прогресс

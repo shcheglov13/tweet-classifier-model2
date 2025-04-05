@@ -183,9 +183,6 @@ class ImageFeatureExtractor(FeatureExtractorBase):
         # Создаем пустой датафрейм для признаков
         features_df = pd.DataFrame(index=data.index)
 
-        # Флаг наличия изображения
-        features_df['has_image'] = data['image_url'].notna().astype(int)
-
         # Извлечение CLIP эмбеддингов
         self.logger.info("Извлечение CLIP эмбеддингов для изображений")
         clip_embeddings = self._extract_clip_embeddings(data['image_url'].tolist())
